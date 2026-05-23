@@ -5,7 +5,7 @@ from PreProcessing import load_processed
 
 OUTPUT_DIR = "reconstructed_frames"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
+QF = 10
 
 def run_intra():
     processed = load_processed("processed")
@@ -14,16 +14,45 @@ def run_intra():
 
     for i, frame in enumerate(processed):
 
-        Y = frame["Y"]
+        Y = frame["Y"].astype(np.float32)
 
-        # (your DCT logic goes here)
-        reconstructed = Y.copy()  # replace later with real DCT result
+        h, w = Y.shape
 
-        reconstructed_frames.append(reconstructed)
+        # padding to multiple of 8
+        pad_h = (8 - h % 8) % 8
+        pad_w = (8 - w % 8) % 8
+        Y = np.pad(Y, ((0, pad_h), (0, pad_w)), mode='constant')
+
+        recon = np.zeros_like(Y, dtype=np.float32)
+
+        # 8x8 block processing
+        for x in range(0, Y.shape[0], 8):
+            for y in range(0, Y.shape[1], 8):
+
+                block = Y[x:x+8, y:y+8]
+
+                # ---- DCT ----
+                dct_block = cv2.dct(block - 128)
+
+                # ---- Quantization ----
+                quant = np.round(dct_block / QF)
+
+                # ---- Dequantization ----
+                dequant = quant * QF
+
+                # ---- IDCT ----
+                idct_block = cv2.idct(dequant) + 128
+
+                recon[x:x+8, y:y+8] = idct_block
+
+        # remove padding
+        recon = recon[:h, :w]
+
+        reconstructed_frames.append(recon)
 
         # SAVE FRAME
         output_path = os.path.join(OUTPUT_DIR, f"frame_{i:04d}.png")
-        cv2.imwrite(output_path, reconstructed)
+        cv2.imwrite(output_path, np.clip(recon, 0, 255).astype(np.uint8))
 
         print(f"Frame {i} reconstructed")
 
